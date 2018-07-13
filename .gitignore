@@ -1,0 +1,14 @@
+*.elf
+*.o
+*.map
+*.lst
+*.hex
+*.bin
+.ipynb_checkpoints
+
+cmsis_exports.c
+sources.c
+sources.tar.xz
+sources.tar.xz.zip
+
+STM32Cube*
