@@ -177,17 +177,13 @@ void sample_write_indices() {
         *target++ = i++;
 }
 
-void sample_write_xorshift_pattern(uint32_t seed) {
-    uint32_t xs_state[4] = {0xdeadcafe, 1, 0, seed};
-    
+void sample_write_xorshift_pattern(uint32_t xs_state[static 4]) {
     uint32_t *target = sample.buf;
     while (target < sample.buf_end)
         *target++ = xorshift128(xs_state);
 }
 
-void sample_measure_xorshift_pattern(uint32_t seed) {
-    uint32_t xs_state[4] = {0xdeadcafe, 1, 0, seed};
-    
+void sample_measure_xorshift_pattern(uint32_t xs_state[static 4]) {
     uint32_t *target = sample.buf;
     while (target < sample.buf_end)
         *target++ ^= xorshift128(xs_state);
@@ -233,23 +229,40 @@ static enum usbd_request_return_codes usb_control_request_cb(usbd_device *usbd_d
 
     switch (req->bRequest) {
         case REQ_SET_READ_OFFX:
-            usbd_ep_stall_set(usbd_dev, 0x82, 0); /* This resets the endpoint data buffer */
-            sample_next_idx = enqueue_read_packet(usbd_dev, 0x82, req->wIndex);
+            usbd_ep_stall_set(usbd_dev, 0x82, 1); /* This resets the endpoint data buffer */
+            sample_next_idx = enqueue_read_packet(usbd_dev, 0x82, 4*req->wIndex);
             break;
-        case REQ_WRITE_TILE:        sample_write_tile_pattern  (*buf, *len); break;
-        case REQ_MEAS_TILE:         sample_measure_tile_pattern(*buf, *len); break;
-        case REQ_WRITE_XORSHIFT:    sample_write_xorshift_pattern  (((uint32_t)req->wIndex)<<16 | req->wLength); break;
-        case REQ_MEAS_XORSHIFT:     sample_measure_xorshift_pattern(((uint32_t)req->wIndex)<<16 | req->wLength); break;
+
+        case REQ_WRITE_TILE:
+            sample_write_tile_pattern  (*buf, *len);
+            break;
+
+        case REQ_MEAS_TILE:
+            sample_measure_tile_pattern(*buf, *len); break;
+
+        case REQ_WRITE_XORSHIFT:
+            if (*len != 16)
+                return USBD_REQ_NOTSUPP;
+            sample_write_xorshift_pattern((uint32_t *)*buf);
+            break;
+
+        case REQ_MEAS_XORSHIFT:
+            if (*len != 16)
+                return USBD_REQ_NOTSUPP;
+            sample_measure_xorshift_pattern((uint32_t *)*buf);
+            break;
+
         case REQ_WRITE_INDICES:     sample_write_indices(); break;
+
         case REQ_MEAS_TEMP:
             temp_buf = 0x2342; /* FIXME todo */
             *buf = (uint8_t *)&temp_buf;
             *len = sizeof(temp_buf);
             break;
-        default: return 0; /* FIXME barf here */
+        default: return USBD_REQ_NOTSUPP; /* FIXME barf here */
     }
 
-    return 1;
+    return USBD_REQ_HANDLED;
 }
 
 static void usb_data_tx_cb(usbd_device *usbd_dev, uint8_t ep) {
