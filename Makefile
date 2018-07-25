@@ -9,12 +9,12 @@ OBJCOPY := arm-none-eabi-objcopy
 OBJDUMP := arm-none-eabi-objdump
 SIZE    := arm-none-eabi-size
 
-CFLAGS  = -Wall -Wextra -g -std=gnu11 -O2
+CFLAGS  = -Wall -Wextra -g -std=gnu11 -O1
 CFLAGS += -mlittle-endian -mcpu=cortex-m3 -mthumb
-CFLAGS += -ffunction-sections -fdata-sections -Wl,--gc-sections 
+#CFLAGS += -ffunction-sections -fdata-sections -Wl,--gc-sections 
 CFLAGS += -Wl,-Map=main.map
 
-CFLAGS += -DSTM32F103xE -DHSE_VALUE=72000000
+CFLAGS += -DSTM32F103xE -DHSE_VALUE=8000000
 
 CFLAGS += -Tstm32_flash.ld
 CFLAGS += -I$(CMSIS_DEV_PATH)/Include -I$(CMSIS_PATH)/Include -I$(HAL_PATH)/Inc -Iconfig
