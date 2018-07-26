@@ -17,6 +17,8 @@
 #include <libopencm3/usb/usbd.h>
 #include <libopencm3/usb/cdc.h>
 #include <libopencm3/cm3/nvic.h>
+#include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/usart.h>
 
 #include "usb.h"
 
@@ -29,6 +31,8 @@
 
 #define RX_ECHO     1
 #define RX_BUF_LEN  256
+
+void power_cycle(uint16_t delay_ms);
 
 static usbd_device *usbd_dev;
 
@@ -198,6 +202,7 @@ enum control_request_type {
 enum control_request {
     REQ_SET_READ_OFFX   = 0x01,
     REQ_MEAS_TEMP       = 0x02,
+    REQ_POWEROFF        = 0x03,
     REQ_WRITE_TILE      = REQ_TYPE_WRITE | 1,
     REQ_WRITE_XORSHIFT  = REQ_TYPE_WRITE | 2,
     REQ_WRITE_INDICES   = REQ_TYPE_WRITE | 3,
@@ -231,6 +236,10 @@ static enum usbd_request_return_codes usb_control_request_cb(usbd_device *usbd_d
         case REQ_SET_READ_OFFX:
             usbd_ep_stall_set(usbd_dev, 0x82, 1); /* This resets the endpoint data buffer */
             sample_next_idx = enqueue_read_packet(usbd_dev, 0x82, 4*req->wIndex);
+            break;
+
+        case REQ_POWEROFF:
+            power_cycle(req->wValue); /* wValue contains the delay in ms */
             break;
 
         case REQ_WRITE_TILE:
@@ -287,6 +296,20 @@ usbd_device *usb_serial_init() {
     // Initialize GPIO
     usb_gpio_init();
 
+    rcc_periph_clock_enable(RCC_GPIOA);
+    gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO_USART1_TX);
+    gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ, GPIO_CNF_INPUT_PULL_UPDOWN, GPIO_USART1_RX);
+
+    rcc_periph_clock_enable(RCC_USART1);
+    usart_set_baudrate(USART1, 9600);
+    usart_set_databits(USART1, 8);
+    usart_set_parity(USART1, USART_PARITY_NONE);
+    usart_set_stopbits(USART1, USART_STOPBITS_1);
+    usart_set_flow_control(USART1, USART_FLOWCONTROL_NONE);
+    usart_set_mode(USART1, USART_MODE_TX_RX);
+    nvic_enable_irq(NVIC_USART1_IRQ);
+    usart_enable(USART1);
+
     // Pull down D+
     gpio_clear(USBD_PORT, USBDP);
     for (int i = 0; i < 0x10000; i++) {
@@ -312,12 +335,36 @@ usbd_device *usb_serial_init() {
     return usbd_dev;
 }
 
-void usb_lp_can_rx0_isr() {
+char usart_txbuf[4];
+char *usart_txp;
+
+void power_cycle(uint16_t delay_ms) {
+    uint8_t c = delay_ms>>16, d = delay_ms&0xff;
+    usart_txbuf[0] = c<255 ? c+1 : 255;
+    usart_txbuf[1] = d<255 ? d+1 : 255;
+    usart_txbuf[2] = 0x00;
+    usart_txp = usart_txbuf;
+    /* Transmit first char to trigger interrupt chain */
+    usart_enable_tx_interrupt(USART1);
+    usart_send(USART1, *++usart_txp);
+}
+
+void usart1_isr(void) {
+    if (usart_get_flag(USART1, USART_FLAG_TXE)) {
+        /* Transmit until null byte. When the terminating null byte is reacheed, transmit it and stop. */
+        if (*usart_txp)
+            usart_send(USART1, *++usart_txp);
+        else
+            usart_disable_tx_interrupt(USART1);
+    }
+}
+
+void usb_lp_can_rx0_isr(void) {
     usbd_poll(usbd_dev);
     nvic_clear_pending_irq(NVIC_USB_LP_CAN_RX0_IRQ);
 }
 
-void usb_hp_can_tx_isr() {
+void usb_hp_can_tx_isr(void) {
     usbd_poll(usbd_dev);
     nvic_clear_pending_irq(NVIC_USB_HP_CAN_TX_IRQ);
 }

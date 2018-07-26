@@ -2,12 +2,14 @@
 import unittest
 import random
 import struct
+import time
 
 import usb
+from usb.core import Device
 
 class BluepillFixture:
     def __init__(self, serial, vid=0x1209, pid=0x6827):
-        self.vid, self.pid, self.serial = vid, pid, serial
+        self.vid, self.pid, self.serial = vid, pid, f'bp1-{serial:04d}' if serial else None
         self._connect()
 
     def write(self, pattern=None, seed=None):
@@ -18,9 +20,9 @@ class BluepillFixture:
 
     def read(self):
         out = b''
-        self._retry(self._dev.ctrl_transfer, bmRequestType=0x21, bRequest=0x01, wValue=0, wIndex=0)
+        self._retry(Device.ctrl_transfer, bmRequestType=0x21, bRequest=0x01, wValue=0, wIndex=0)
         while True:
-            data = bytes(self._retry(self._dev.read, endpoint=0x82, size_or_buffer=8192, timeout=100))
+            data = bytes(self._retry(Device.read, endpoint=0x82, size_or_buffer=8192, timeout=100))
             if not data:
                 return out
 
@@ -28,29 +30,37 @@ class BluepillFixture:
             if len(out) > 2e6:
                 raise NotImplementedError(f'This code is really not meant to handle more than a few hundred KB of data, got {len(out)/1e6:.0f}MB so far. Aborting.')
 
+    def power_cycle(self, delay_ms):
+        self._retry(Device.ctrl_transfer, bmRequestType=0x21, bRequest=0x03, wValue=delay_ms, wIndex=0)
+
     def _write_op(self, pattern, seed, op):
         if pattern is not None:
-            self._retry(self._dev.ctrl_transfer, bmRequestType=0x21, bRequest=op | 1, wValue=0, wIndex=0, data_or_wLength=pattern)
+            self._retry(Device.ctrl_transfer, bmRequestType=0x21, bRequest=op | 1, wValue=0, wIndex=0, data_or_wLength=pattern)
         elif seed is not None:
-            self._retry(self._dev.ctrl_transfer, bmRequestType=0x21, bRequest=op | 2, wValue=0, wIndex=0, data_or_wLength=seed)
+            self._retry(Device.ctrl_transfer, bmRequestType=0x21, bRequest=op | 2, wValue=0, wIndex=0, data_or_wLength=seed)
         else:
             raise ValueError('Either pattern or seed must be given.')
 
     def _connect(self):
-        self._dev = usb.core.find(idVendor=self.vid, idProduct=self.pid, **dict(serial_number=f'bp1-{self.serial:04d}') if self.serial else {})
+        self._dev = usb.core.find(idVendor=self.vid, idProduct=self.pid, **dict(serial_number=self.serial) if self.serial else {})
         if self._dev is None:
-            raise OSError(f'Device with serial bp1-{self.serial:04d} not found')
+            raise OSError(f'Device with serial {self.serial} not found')
 
     def _retry(self, op, *args, **kwargs):
         try:
             #print(f'Running {op} with {args}, {kwargs}')
-            return op(*args, **kwargs)
+            return op(self._dev, *args, **kwargs)
+
         except usb.core.USBError as e:
             if e.errno != 19: # No such device/device disconnected
                 raise e
 
             self._connect()
-            return op(*args, **kwargs)
+            return op(self._dev, *args, **kwargs)
+
+        except AttributeError as e: # PyUSB is a little buggy and sometimes throws these instead of the above USBError
+            self._connect()
+            return op(self._dev, *args, **kwargs)
 
 class BluepillFixtureTest(unittest.TestCase):
     @classmethod
@@ -137,5 +147,14 @@ class BluepillFixtureTest(unittest.TestCase):
             BluepillFixtureTest.fix.xor(seed=seed1)
             data5 = BluepillFixtureTest.fix.read()
             self.assertEqual(data5, b'\0'*BluepillFixtureTest.n)
+
+    def testPowerCycle(self):
+        BluepillFixtureTest.fix.power_cycle(delay_ms=1000)
+        time.sleep(1.0)
+        with self.assertRaises(OSError):
+            BluepillFixtureTest.fix.power_cycle(delay_ms=100)
+        time.sleep(1.5)
+        BluepillFixtureTest.fix.power_cycle(delay_ms=100)
+        time.sleep(2.0) # Wait to make sure the device is there again for the next test
 
 
