@@ -30,8 +30,19 @@ class BluepillFixture:
             if len(out) > 2e6:
                 raise NotImplementedError(f'This code is really not meant to handle more than a few hundred KB of data, got {len(out)/1e6:.0f}MB so far. Aborting.')
 
-    def power_cycle(self, delay_ms):
+    def power_cycle(self, delay_ms, wait=False, timeout=10.0, interval=0.1):
         self._retry(Device.ctrl_transfer, bmRequestType=0x21, bRequest=0x03, wValue=delay_ms, wIndex=0)
+        if wait:
+            for _ in range(int(timeout/interval)):
+                try:
+                    self._dev = usb.core.find(idVendor=self.vid, idProduct=self.pid, **dict(serial_number=self.serial) if self.serial else {})
+                    self._dev.set_configuration(1)
+                    self._retry(Device.ctrl_transfer, bmRequestType=0x21, bRequest=0x01, wValue=0, wIndex=0) # read
+                    break
+                except:
+                    time.sleep(interval)
+            else:
+                raise OSError('Timeout while reconnecting to bluepill fixture')
 
     def _write_op(self, pattern, seed, op):
         if pattern is not None:
@@ -45,6 +56,7 @@ class BluepillFixture:
         self._dev = usb.core.find(idVendor=self.vid, idProduct=self.pid, **dict(serial_number=self.serial) if self.serial else {})
         if self._dev is None:
             raise OSError(f'Device with serial {self.serial} not found')
+        self._dev.set_configuration(1)
 
     def _retry(self, op, *args, **kwargs):
         try:
