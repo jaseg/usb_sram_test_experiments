@@ -34,7 +34,7 @@
 #define RX_ECHO     1
 #define RX_BUF_LEN  256
 
-void power_cycle(uint16_t delay_ms);
+void power_cycle(uint16_t delay_10us);
 
 static usbd_device *usbd_dev;
 
@@ -372,8 +372,8 @@ usbd_device *usb_serial_init() {
 char usart_txbuf[4];
 char *usart_txp;
 
-void power_cycle(uint16_t delay_ms) {
-    uint8_t c = delay_ms>>16, d = delay_ms&0xff;
+void power_cycle(uint16_t delay_10us) {
+    uint8_t c = delay_10us>>16, d = delay_10us&0xff;
     usart_txbuf[0] = c<255 ? c+1 : 255;
     usart_txbuf[1] = d<255 ? d+1 : 255;
     usart_txbuf[2] = 0x00;

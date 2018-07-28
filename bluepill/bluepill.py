@@ -32,7 +32,7 @@ class BluepillFixture:
                 raise NotImplementedError(f'This code is really not meant to handle more than a few hundred KB of data, got {len(out)/1e6:.0f}MB so far. Aborting.')
 
     def power_cycle(self, delay_ms, wait=False, timeout=10.0, interval=0.1):
-        self._retry(Device.ctrl_transfer, bmRequestType=0x21, bRequest=0x03, wValue=delay_ms, wIndex=0)
+        self._retry(Device.ctrl_transfer, bmRequestType=0x21, bRequest=0x03, wValue=round(delay_ms*100), wIndex=0)
         if wait:
             for _ in range(int(timeout/interval)):
                 try:

@@ -23,12 +23,13 @@ if __name__ == '__main__':
         mode.write(fix)
         fix.power_cycle(ivl, wait=True, interval=0.03)
         mode.xor(fix)
+        temperature = fix.read_temperature()
         data = fix.read()
 
         flips = sum(bin(x).count('1') for x in data)
         print(f'job {int(job): 9d} {flips-len(data)*8//2: 9d}@{ivl}ms {mode_name:>8}:{params}', flush=True)
         with db:
             db.execute('INSERT INTO measurements(mode, mode_settings, interval_ms, timestamp, temperature, result) VALUES (?,?,?,?,?,?)',
-                (mode_name, params, ivl, time.time()*1000, -273, data))
+                (mode_name, params, ivl, time.time()*1000, temperature, data))
             db.execute('DELETE FROM jobs WHERE oid=?', (int(job),))
 

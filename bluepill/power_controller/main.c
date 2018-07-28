@@ -21,9 +21,9 @@ int main() {
 	UART1->BRR2 = 0x03;
 	UART1->BRR1 = 0x68;
 
-	/* Prescaler 16000, 1ms per tick */
-	TIM1->PSCRH = 62;
-	TIM1->PSCRL = 127;
+	/* Prescaler 160, 10us per tick */
+	TIM1->PSCRH = 0;
+	TIM1->PSCRL = 159;
 	TIM1->IER   = 0x01; /* UIE */
 	TIM1->ARRH  = 0;
 	TIM1->ARRL  = 1;
