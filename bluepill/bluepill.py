@@ -3,6 +3,7 @@ import unittest
 import random
 import struct
 import time
+import statistics
 
 import usb
 from usb.core import Device
@@ -43,6 +44,11 @@ class BluepillFixture:
                     time.sleep(interval)
             else:
                 raise OSError('Timeout while reconnecting to bluepill fixture')
+
+    def read_temperature(self):
+        data = self._retry(Device.ctrl_transfer, bmRequestType=0xA1, bRequest=0x02, wValue=0, wIndex=0, data_or_wLength=64)
+        temp, = struct.unpack('<h', bytes(data))
+        return temp/10 # Device returns signed integer tenths of a degree
 
     def _write_op(self, pattern, seed, op):
         if pattern is not None:
@@ -169,4 +175,13 @@ class BluepillFixtureTest(unittest.TestCase):
         BluepillFixtureTest.fix.power_cycle(delay_ms=100)
         time.sleep(2.0) # Wait to make sure the device is there again for the next test
 
+    def testReadTemperature(self):
+        temps = []
+        for _ in range(1000):
+            temp = BluepillFixtureTest.fix.read_temperature()
+            self.assertEqual(type(temp), float)
+            self.assertTrue(10 <= temp <= 50) # device temp may be higher than ambient temp
+            temps.append(temp)
+        self.assertTrue(10 <= statistics.mean(temps) <= 50)
+        self.assertTrue(-5 <= statistics.stdev(temps) <= 5)
 
