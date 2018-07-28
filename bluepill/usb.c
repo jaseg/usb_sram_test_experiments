@@ -19,8 +19,10 @@
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/usart.h>
+#include <libopencm3/stm32/adc.h>
 
 #include "usb.h"
+#include "adc.h"
 
 #define STATUS_LED_PORT GPIOC
 #define STATUS_LED_PIN  GPIO13
@@ -224,9 +226,18 @@ static size_t enqueue_read_packet(usbd_device *usbd_dev, uint8_t ep, size_t idx)
     return idx + len;
 }
 
+uint16_t adc_read_single(uint8_t adc_channel) {
+        adc_set_regular_sequence(ADC1, 1, &adc_channel);
+        adc_start_conversion_direct(ADC1);
+        while (!adc_eoc(ADC1))
+            ;
+        return adc_read_regular(ADC1);
+}
+
 static enum usbd_request_return_codes usb_control_request_cb(usbd_device *usbd_dev, struct usb_setup_data *req,
         uint8_t **buf, uint16_t *len, usbd_control_complete_callback *complete) {
-    static uint16_t temp_buf;
+    static int16_t temp_buf;
+    uint32_t vref;
     (void)usbd_dev;
     (void)buf;
     (void)len;
@@ -240,6 +251,16 @@ static enum usbd_request_return_codes usb_control_request_cb(usbd_device *usbd_d
 
         case REQ_POWEROFF:
             power_cycle(req->wValue); /* wValue contains the delay in ms */
+            break;
+
+        case REQ_MEAS_TEMP:
+            /* 1200mV is the typical Vref_int */
+            vref = 1200*4096/adc_read_single(17);
+            /* divide slope by 10, multiply ref temp by 10 to get output in tenths of a degree C */
+            temp_buf = __LL_ADC_CALC_TEMPERATURE_TYP_PARAMS(430, 1430, 250, 3300, adc_read_single(16));
+
+            *buf = (uint8_t *)&temp_buf;
+            *len = sizeof(temp_buf);
             break;
 
         case REQ_WRITE_TILE:
@@ -261,14 +282,12 @@ static enum usbd_request_return_codes usb_control_request_cb(usbd_device *usbd_d
             sample_measure_xorshift_pattern((uint32_t *)*buf);
             break;
 
-        case REQ_WRITE_INDICES:     sample_write_indices(); break;
-
-        case REQ_MEAS_TEMP:
-            temp_buf = 0x2342; /* FIXME todo */
-            *buf = (uint8_t *)&temp_buf;
-            *len = sizeof(temp_buf);
+        case REQ_WRITE_INDICES:
+            sample_write_indices();
             break;
-        default: return USBD_REQ_NOTSUPP; /* FIXME barf here */
+
+        default:
+            return USBD_REQ_NOTSUPP;
     }
 
     return USBD_REQ_HANDLED;
@@ -310,6 +329,16 @@ usbd_device *usb_serial_init() {
     nvic_enable_irq(NVIC_USART1_IRQ);
     usart_enable(USART1);
 
+    rcc_periph_clock_enable(RCC_ADC1);
+    adc_power_off(ADC1);
+    adc_disable_scan_mode(ADC1);
+    adc_set_single_conversion_mode(ADC1);
+    adc_disable_external_trigger_regular(ADC1);
+    adc_set_right_aligned(ADC1);
+    adc_enable_temperature_sensor();
+    adc_set_sample_time_on_all_channels(ADC1, ADC_SMPR_SMP_28DOT5CYC);
+    adc_power_on(ADC1);
+
     // Pull down D+
     gpio_clear(USBD_PORT, USBDP);
     for (int i = 0; i < 0x10000; i++) {
@@ -331,6 +360,11 @@ usbd_device *usb_serial_init() {
 
     nvic_enable_irq(NVIC_USB_LP_CAN_RX0_IRQ);
     nvic_enable_irq(NVIC_USB_HP_CAN_TX_IRQ);
+
+    for (int i=0; i<800000; i++)
+        asm volatile("nop");
+    adc_reset_calibration(ADC1);
+    adc_calibrate(ADC1);
 
     return usbd_dev;
 }
