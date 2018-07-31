@@ -66,7 +66,7 @@ class BluepillFixture:
 
     def _retry(self, op, *args, **kwargs):
         try:
-            #print(f'Running {op} with {args}, {kwargs}')
+            print(f'Running {op} with {args}, {kwargs}')
             return op(self._dev, *args, **kwargs)
 
         except usb.core.USBError as e:

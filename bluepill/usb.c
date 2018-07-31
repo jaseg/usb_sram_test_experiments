@@ -255,9 +255,9 @@ static enum usbd_request_return_codes usb_control_request_cb(usbd_device *usbd_d
 
         case REQ_MEAS_TEMP:
             /* 1200mV is the typical Vref_int */
-            vref = 1200*4096/adc_read_single(17);
+            //vref = 1200*4096/adc_read_single(17);
             /* divide slope by 10, multiply ref temp by 10 to get output in tenths of a degree C */
-            temp_buf = __LL_ADC_CALC_TEMPERATURE_TYP_PARAMS(430, 1430, 250, 3300, adc_read_single(16));
+            temp_buf = __LL_ADC_CALC_TEMPERATURE_TYP_PARAMS(430, 1430, 250, vref, adc_read_single(16));
 
             *buf = (uint8_t *)&temp_buf;
             *len = sizeof(temp_buf);
@@ -373,14 +373,14 @@ char usart_txbuf[4];
 char *usart_txp;
 
 void power_cycle(uint16_t delay_10us) {
-    uint8_t c = delay_10us>>16, d = delay_10us&0xff;
+    uint8_t c = delay_10us>>8, d = delay_10us&0xff;
     usart_txbuf[0] = c<255 ? c+1 : 255;
     usart_txbuf[1] = d<255 ? d+1 : 255;
     usart_txbuf[2] = 0x00;
     usart_txp = usart_txbuf;
     /* Transmit first char to trigger interrupt chain */
     usart_enable_tx_interrupt(USART1);
-    usart_send(USART1, *++usart_txp);
+    usart_send(USART1, *usart_txp);
 }
 
 void usart1_isr(void) {
